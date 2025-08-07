@@ -27,6 +27,8 @@ vlc_processes = {
 }
 current_video_id = None
 downloaded_videos = {} # Cache for video titles
+filler_music_target_volume = 100 # Default volume for filler music (0-256)
+karaoke_player_is_active = False # Tracks if a karaoke song is supposed to be playing
 
 # --- Logging ---
 def log_message(message):
@@ -105,23 +107,32 @@ def send_vlc_command(port, password, command, is_path=False):
         log_message(f"An unexpected error occurred when calling VLC: {e}")
         return None
 
-# --- Filler Music Control ---
-def control_filler_music(action):
-    """Controls the filler music. Actions: 'play', 'pause', 'stop'."""
-    if action == 'play':
-        # Seek to a random position before playing
-        duration_s = 3 * 60 + 30 # Approximate duration of wii.mp3
-        random_start = random.randint(0, duration_s - 30) # Avoid starting too close to the end
-        send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, f"seek&val={random_start}")
-        time.sleep(0.1)
-        send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_play")
-        log_message("Filler music started.")
-    elif action == 'pause':
+# --- Fading and Music Control ---
+def fade_music(port, password, start_vol, end_vol, duration_s=3):
+    """Gradually fades volume over a set duration."""
+    steps = 20
+    delay = duration_s / steps
+    for i in range(steps + 1):
+        volume = int(start_vol + (end_vol - start_vol) * (i / steps))
+        send_vlc_command(port, password, f"volume&val={volume}")
+        time.sleep(delay)
+
+def fade_in_filler():
+    """Fades in the filler music."""
+    log_message("Fading in filler music...")
+    # Ensure it's playing, but at 0 volume first
+    send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "volume&val=0")
+    send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_play")
+    threading.Thread(target=fade_music, args=(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, 0, filler_music_target_volume)).start()
+
+def fade_out_filler():
+    """Fades out the filler music and then pauses it."""
+    log_message("Fading out filler music...")
+    def fade_and_pause():
+        fade_music(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, filler_music_target_volume, 0)
         send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_pause")
-        log_message("Filler music paused.")
-    elif action == 'stop':
-        send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_stop")
-        log_message("Filler music stopped.")
+        log_message("Filler music faded out and paused.")
+    threading.Thread(target=fade_and_pause).start()
 
 
 # --- YouTube Downloader ---
@@ -209,9 +220,8 @@ def handle_play():
 
     log_message(f"Attempting to play video: {video_path}")
     
-    log_message("Pausing filler music...")
-    control_filler_music('pause')
-    time.sleep(0.5) # Give music time to fade
+    fade_out_filler()
+    time.sleep(3.5) # Wait for fade to complete
 
     log_message("Sending commands to Karaoke VLC...")
     # 1. Clear the playlist
@@ -228,12 +238,14 @@ def handle_play():
     status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
     if status and status.get('state') == 'playing':
         log_message(f"SUCCESS: VLC reports playback started for {video_id}.")
+        global karaoke_player_is_active
+        karaoke_player_is_active = True
         current_video_id = video_id
         return jsonify({"success": True, "message": f"Playing {video_id}"})
     else:
         log_message(f"ERROR: VLC did not confirm playback for {video_id}. Last status: {status}")
         # Attempt to restart filler music as a fallback
-        control_filler_music('play')
+        fade_in_filler()
         return jsonify({"error": "VLC did not confirm playback. Check logs.", "vlc_status": status}), 500
 
 @app.route('/control', methods=['POST'])
@@ -244,21 +256,26 @@ def handle_control():
         return jsonify({"error": "Action is required"}), 400
 
     log_message(f"Received control action: {action}")
+    global karaoke_player_is_active
     if action == 'pause_resume':
         send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_pause")
         # Check if we should resume filler music
+        time.sleep(0.5) # Give vlc time to process
         status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
         if status and status.get('state') == 'paused':
-            control_filler_music('play')
+            karaoke_player_is_active = False
+            fade_in_filler()
         else:
-            control_filler_music('pause')
+            karaoke_player_is_active = True
+            fade_out_filler()
     elif action == 'restart':
         send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "seek&val=0")
     elif action == 'stop':
         send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_stop")
-        control_filler_music('play')
+        karaoke_player_is_active = False
         global current_video_id
         current_video_id = None
+        fade_in_filler()
 
     return jsonify({"success": True, "message": f"Action '{action}' executed."})
 
@@ -266,7 +283,7 @@ def handle_control():
 def handle_volume():
     """Handles volume control for karaoke or filler music."""
     target = request.json.get('target')
-    level = request.json.get('level') # Should be 0-256 for VLC
+    level = int(request.json.get('level')) # Should be 0-256 for VLC
     if not all([target, level is not None]):
         return jsonify({"error": "Target and level are required"}), 400
 
@@ -274,6 +291,8 @@ def handle_volume():
         port, password = KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD
     elif target == 'filler':
         port, password = FILLER_VLC_PORT, FILLER_VLC_PASSWORD
+        global filler_music_target_volume
+        filler_music_target_volume = level
     else:
         return jsonify({"error": "Invalid target"}), 400
 
@@ -316,20 +335,40 @@ def load_video_cache():
                 log_message(f"Could not load metadata from {filename}: {e}")
     log_message(f"Loaded {len(downloaded_videos)} videos into cache.")
 
+def monitor_karaoke_player():
+    """A background thread to check if a song has ended and trigger filler music."""
+    global karaoke_player_is_active, current_video_id
+    while True:
+        time.sleep(2)
+        if not karaoke_player_is_active:
+            continue
+
+        status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
+        # 'state' becomes 'stopped' when a video finishes
+        if status and status.get('state') == 'stopped':
+            log_message("Karaoke video finished playing.")
+            karaoke_player_is_active = False
+            current_video_id = None
+            fade_in_filler()
+
 def start_app():
     """Initializes and starts the application components."""
     log_message("--- KJ Controller Starting Up ---")
     load_video_cache()
 
-    # Launch VLC instances in separate threads
-    threading.Thread(target=launch_vlc_instance, args=("karaoke", KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD), daemon=True).start()
-    threading.Thread(target=launch_vlc_instance, args=("filler", FILLER_VLC_PORT, FILLER_VLC_PASSWORD, FILLER_MUSIC_PATH, True), daemon=True).start()
+    # Launch VLC instances
+    launch_vlc_instance("karaoke", KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD)
+    launch_vlc_instance("filler", FILLER_VLC_PORT, FILLER_VLC_PASSWORD, FILLER_MUSIC_PATH, True)
 
     # Wait for VLC instances to be ready
     time.sleep(3)
 
     # Start filler music
-    control_filler_music('play')
+    fade_in_filler()
+
+    # Start the karaoke player monitor in a background thread
+    monitor_thread = threading.Thread(target=monitor_karaoke_player, daemon=True)
+    monitor_thread.start()
 
     # Start Flask app
     log_message("Starting Flask server...")
