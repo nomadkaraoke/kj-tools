@@ -49,11 +49,10 @@
                         
                         // Define a handler for the canplaythrough event
                         const onCanPlayThrough = () => {
-                            console.log('Video is buffered and ready to play.');
+                            console.log('Video is buffered. Pausing at start and signaling ready.');
+                            video.pause(); // Pause at the beginning
                             // Emit 'video_ready' back to the server
                             socket.emit('video_ready', { video_id: data.video_id });
-                            // Remove the event listener so it doesn't fire again
-                            video.removeEventListener('canplaythrough', onCanPlayThrough);
                         };
                         
                         // Add the event listener
@@ -62,7 +61,7 @@
                         break;
                     case 'play_now':
                         console.log('Received play_now command. Starting playback.');
-                        video.play();
+                        video.play(); // This will now unpause from the first frame
                         video.muted = false; // Unmute after playback starts
                         break;
                     case 'pause':

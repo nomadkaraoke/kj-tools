@@ -235,52 +235,107 @@ def handle_play():
     # The rest of the play logic is now handled by the 'video_ready' socket event
     return jsonify({"success": True, "message": "Preload initiated."})
 
-@socketio.on('video_ready')
-def on_video_ready(data):
-    """
-    This event is triggered by the external screen when it has buffered
-    enough of the video to start playing.
-    """
-    video_id = data.get('video_id')
-    log_message(f"Client is ready to play {video_id}. Starting playback now.")
+# --- New Sync Logic State ---
+external_client_ready = threading.Event()
+master_vlc_ready = threading.Event()
 
-    # Find the video file path
+def trigger_playback(video_id):
+    """Waits for both clients to be ready, then starts playback."""
+    log_message(f"Waiting for players to be ready for {video_id}...")
+    
+    # Wait for both events to be set, with a timeout
+    external_ready = external_client_ready.wait(timeout=10)
+    master_ready = master_vlc_ready.wait(timeout=10)
+
+    if not external_ready:
+        log_message("ERROR: Timed out waiting for external client.")
+        return
+    if not master_ready:
+        log_message("ERROR: Timed out waiting for master VLC.")
+        return
+
+    log_message("All players ready. Broadcasting 'play_now'.")
+    
+    # 1. Broadcast the play command to all clients
+    socketio.emit('player_action', {'action': 'play_now'})
+    
+    # 2. Unpause the master VLC player (pl_pause acts as a toggle)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_pause")
+    
+    global karaoke_player_is_active
+    karaoke_player_is_active = True
+    log_message(f"Playback started for {video_id}.")
+
+    # Clear events for the next song
+    external_client_ready.clear()
+    master_vlc_ready.clear()
+
+@app.route('/play', methods=['POST'])
+def handle_play():
+    """Handles the video playback request with preloading."""
+    global current_video_id
+    video_id = request.json.get('video_id')
+    if not video_id:
+        return jsonify({"error": "Video ID is required"}), 400
+
+    log_message(f"Received play request for {video_id}. Initiating preload on all devices.")
+    current_video_id = video_id
+    
+    # Clear previous ready signals
+    external_client_ready.clear()
+    master_vlc_ready.clear()
+
+    # --- Preload on External Client ---
+    socketio.emit('player_action', {'action': 'preload', 'video_id': video_id})
+
+    # --- Preload on Master VLC (in a paused state) ---
     video_path = None
     for f in os.listdir(VIDEO_DIR):
         if f.startswith(video_id) and not f.endswith(('.json', '.webp', '.jpg')):
             video_path = os.path.join(VIDEO_DIR, f)
             break
-
+    
     if not video_path:
-        log_message(f"ERROR: Could not find video path for {video_id} on ready signal.")
-        return
+        return jsonify({"error": f"Video file for {video_id} not found"}), 404
 
-    # --- Broadcast Play Now signal to external screen FIRST ---
-    log_message(f"Telling external screen to play {video_id}.")
-    socketio.emit('player_action', {'action': 'play_now'})
-
-    # Optional: A small delay to give the network a head start.
-    # This ensures the external screen starts before the main display.
-    time.sleep(0.15) # 150ms delay
-
-    # --- Start Playback on Master VLC ---
-    log_message(f"Telling master VLC to play {video_id}.")
+    # Fade out filler music before loading
     status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
-    if status and status.get('state') != 'stopped':
-        log_message("Karaoke player is already active. Skipping filler music fade-out.")
-    else:
+    if not (status and status.get('state') != 'stopped'):
         fade_out_filler()
-        time.sleep(3.5) # Wait for fade to complete
+        time.sleep(3.5) # Wait for fade
 
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}")
-    time.sleep(0.1)
+    # Load the video but keep it paused
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
     time.sleep(0.1)
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_play&input={video_path}", is_path=True)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_enqueue&input={video_path}", is_path=True)
+    time.sleep(0.1)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_play")
+    time.sleep(0.5) # Give VLC time to load and enter the 'playing' state
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_pause") # Immediately pause it
     
-    global karaoke_player_is_active
-    karaoke_player_is_active = True
-    log_message(f"Master playback started for {video_id}.")
+    # Check that VLC is now paused
+    time.sleep(0.2)
+    vlc_status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
+    if vlc_status and vlc_status.get('state') == 'paused':
+        log_message("Master VLC is preloaded and paused.")
+        master_vlc_ready.set() # Signal that the master is ready
+    else:
+        log_message(f"ERROR: Master VLC failed to enter paused state. Status: {vlc_status}")
+
+    # Start the thread that will wait for all 'ready' signals
+    threading.Thread(target=trigger_playback, args=(video_id,)).start()
+
+    return jsonify({"success": True, "message": "Preload initiated."})
+
+@socketio.on('video_ready')
+def on_video_ready(data):
+    """
+    This event is triggered by the external screen when it has buffered
+    and is ready to play.
+    """
+    video_id = data.get('video_id')
+    log_message(f"External client is ready to play {video_id}.")
+    external_client_ready.set() # Signal that the external client is ready
 
 @app.route('/control', methods=['POST'])
 def handle_control():
