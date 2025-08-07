@@ -96,11 +96,12 @@
                 <h2>⏯️ Playback Controls</h2>
                 <div class="button-group">
                     <button onclick="controlPlayback('pause_resume')">Pause / Resume</button>
+                    <button onclick="controlPlayback('restart')">Restart</button>
                     <button onclick="controlPlayback('stop')">Stop & Play Music</button>
                 </div>
                 <div style="margin-top: 1rem;">
-                    <label for="seek-slider">Seek:</label>
-                    <input type="range" id="seek-slider" class="volume-slider" min="0" max="1" value="0" step="0.01" oninput="seekVideo(this.value)">
+                    <label for="seek-slider">Seek: <span id="seek-value">0:00</span></label>
+                    <input type="range" id="seek-slider" class="volume-slider" min="0" max="1" value="0" step="0.001" onchange="seekVideo(this.value)" oninput="updateSeekLabel(this.value)">
                 </div>
                 <div style="margin-top: 1rem;">
                     <label for="karaoke-volume">Karaoke Volume:</label>
@@ -233,11 +234,19 @@
         }
 
         let totalVideoLength = 0; // Store the total length of the current video
+        let isSeeking = false;
+
+        function updateSeekLabel(position) {
+            if (totalVideoLength > 0) {
+                const seekTime = parseFloat(position) * totalVideoLength;
+                document.getElementById('seek-value').textContent = formatTime(seekTime);
+            }
+        }
 
         async function seekVideo(position) {
             if (totalVideoLength > 0) {
                 const seekTime = parseFloat(position) * totalVideoLength;
-                log(`Seeking to ${seekTime.toFixed(2)}s`);
+                log(`Seeking to ${formatTime(seekTime)}`);
                 await apiCall('/seek', { time: seekTime });
             }
         }
@@ -334,16 +343,14 @@
 
                     totalVideoLength = data.length || 0;
                     const seekSlider = document.getElementById('seek-slider');
-                    if (totalVideoLength > 0) {
-                        seekSlider.value = data.time / totalVideoLength;
-                    } else {
-                        seekSlider.value = 0;
-                    }
-
-                    // Update filler music selector
-                    const fillerSelector = document.getElementById('filler-selector');
-                    if (data.current_filler_track && fillerSelector.value !== data.current_filler_track) {
-                        fillerSelector.value = data.current_filler_track;
+                    if (!isSeeking) {
+                        if (totalVideoLength > 0) {
+                            seekSlider.value = data.time / totalVideoLength;
+                            updateSeekLabel(seekSlider.value);
+                        } else {
+                            seekSlider.value = 0;
+                            updateSeekLabel(0);
+                        }
                     }
                 }
             } catch (error) {
@@ -352,6 +359,12 @@
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            const seekSlider = document.getElementById('seek-slider');
+            seekSlider.addEventListener('mousedown', () => { isSeeking = true; });
+            seekSlider.addEventListener('mouseup', () => { isSeeking = false; });
+            seekSlider.addEventListener('touchstart', () => { isSeeking = true; });
+            seekSlider.addEventListener('touchend', () => { isSeeking = false; });
+
             updateStatus();
             updateVideoList();
             updateFillerMusicList();

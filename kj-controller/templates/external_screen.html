@@ -81,6 +81,7 @@
                     case 'seek':
                         console.log(`Seeking to ${data.time}`);
                         video.currentTime = data.time;
+                        video.play();
                         break;
                 }
             });

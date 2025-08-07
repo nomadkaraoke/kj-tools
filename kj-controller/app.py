@@ -381,6 +381,9 @@ def handle_control():
             karaoke_player_is_active = True
             fade_out_filler()
             socketio.emit('player_action', {'action': 'resume'})
+    elif action == 'restart':
+        send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "seek&val=0")
+        socketio.emit('player_action', {'action': 'restart'})
     elif action == 'stop':
         send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_stop")
         karaoke_player_is_active = False
