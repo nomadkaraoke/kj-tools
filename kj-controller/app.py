@@ -73,32 +73,28 @@ def launch_vlc_instance(name, port, password, media_file=None, loop=False):
     # Give VLC a moment to start up
     time.sleep(2)
 
-def send_vlc_command(port, password, command, is_path=False):
-    """Sends a command to a VLC HTTP interface."""
-    # The query part of the URL needs to be handled carefully.
-    # The 'command' part is the key, and the rest is the value.
-    # For file paths, we need to be extra careful with encoding.
+def send_vlc_command(port, password, command, is_path=False, debug=False):
+    """Sends a command to a VLC HTTP interface, with optional verbose logging."""
     if '&' in command and not is_path:
-        # Simple command like 'seek&val=0'
         url = f"http://localhost:{port}/requests/status.json?command={command}"
     else:
-        # Command with input, like 'in_play&input=...'
         parts = command.split('&input=', 1)
         cmd_part = parts[0]
         input_part = parts[1] if len(parts) > 1 else ''
-        
-        # URL encode only the input part (the file path)
         encoded_input = requests.utils.quote(input_part)
         url = f"http://localhost:{port}/requests/status.json?command={cmd_part}&input={encoded_input}"
 
-    log_message(f"DEBUG: Sending VLC command to {url}")
+    if debug:
+        log_message(f"DEBUG: Sending VLC command to {url}")
+
     try:
         s = requests.Session()
         s.auth = ('', password)
         response = s.get(url, timeout=5)
-        log_message(f"DEBUG: VLC response status: {response.status_code}")
         response_json = response.json()
-        log_message(f"DEBUG: VLC response body: {response_json}")
+        if debug:
+            log_message(f"DEBUG: VLC response status: {response.status_code}")
+            log_message(f"DEBUG: VLC response body: {response_json}")
         response.raise_for_status()
         return response_json
     except requests.exceptions.RequestException as e:
@@ -226,21 +222,21 @@ def handle_play():
 
     log_message("Sending commands to Karaoke VLC...")
     # 1. Set the volume to the target level before playing
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}")
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}", debug=True)
     time.sleep(0.2)
 
     # 2. Clear the playlist
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty", debug=True)
     time.sleep(0.2)
     
     # 3. Add the new video and play it immediately. This is more reliable.
     play_command = f"in_play&input={video_path}"
-    play_response = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, play_command, is_path=True)
+    play_response = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, play_command, is_path=True, debug=True)
     time.sleep(0.2)
 
     # 4. Verify playback state
     time.sleep(1) # Give VLC a moment to update its state
-    status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
+    status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "", debug=True)
     if status and status.get('state') == 'playing':
         log_message(f"SUCCESS: VLC reports playback started for {video_id}.")
         global karaoke_player_is_active
@@ -317,6 +313,11 @@ def get_status():
     """Gets the status of the karaoke player."""
     status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
     if status:
+        # Add current volume to the status response
+        status['karaoke_volume'] = status.get('volume', 0)
+        filler_status = send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "")
+        status['filler_volume'] = filler_status.get('volume', 0) if filler_status else 0
+        
         return jsonify({
             "state": status.get('state'),
             "current_video_id": current_video_id,
@@ -350,7 +351,8 @@ def monitor_karaoke_player():
         if not karaoke_player_is_active:
             continue
 
-        status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
+        # Use debug=False to prevent spamming the logs
+        status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "", debug=False)
         # 'state' becomes 'stopped' when a video finishes
         if status and status.get('state') == 'stopped':
             log_message("Karaoke video finished playing.")
