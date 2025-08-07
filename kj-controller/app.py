@@ -51,6 +51,10 @@ def launch_vlc_instance(name, port, password, media_file=None, loop=False):
         '--http-password', password,
         '--no-video-title-show', # Hide title overlay
     ]
+    # Make the karaoke player always start in fullscreen
+    if name == 'karaoke':
+        command.append('--fullscreen')
+        
     if media_file:
         command.append(media_file)
     if loop:
@@ -219,10 +223,7 @@ def handle_play():
     play_response = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, play_command, is_path=True)
     time.sleep(0.2)
 
-    # 3. Turn on fullscreen
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "fullscreen_on")
-
-    # 4. Verify playback state
+    # 3. Verify playback state
     time.sleep(1) # Give VLC a moment to update its state
     status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
     if status and status.get('state') == 'playing':
