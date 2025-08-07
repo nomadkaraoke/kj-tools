@@ -96,11 +96,16 @@
                 });
                 const data = await response.json();
                 if (!response.ok) {
-                    throw new Error(data.error || 'API request failed');
+                    // Construct a more detailed error message
+                    let errorMessage = data.error || 'API request failed';
+                    if (data.vlc_status) {
+                        errorMessage += ` | VLC Status: ${JSON.stringify(data.vlc_status)}`;
+                    }
+                    throw new Error(errorMessage);
                 }
                 return data;
             } catch (error) {
-                log(`Error: ${error.message}`, 'error');
+                log(`API Error: ${error.message}`, 'error');
                 return null;
             }
         }

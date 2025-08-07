@@ -66,20 +66,39 @@ def launch_vlc_instance(name, port, password, media_file=None, loop=False):
     # Give VLC a moment to start up
     time.sleep(2)
 
-def send_vlc_command(port, password, command):
+def send_vlc_command(port, password, command, is_path=False):
     """Sends a command to a VLC HTTP interface."""
-    # Properly encode the command to handle special characters in file paths
-    encoded_command = requests.utils.quote(command)
-    url = f"http://localhost:{port}/requests/status.json?command={encoded_command}"
+    # The query part of the URL needs to be handled carefully.
+    # The 'command' part is the key, and the rest is the value.
+    # For file paths, we need to be extra careful with encoding.
+    if '&' in command and not is_path:
+        # Simple command like 'seek&val=0'
+        url = f"http://localhost:{port}/requests/status.json?command={command}"
+    else:
+        # Command with input, like 'in_play&input=...'
+        parts = command.split('&input=', 1)
+        cmd_part = parts[0]
+        input_part = parts[1] if len(parts) > 1 else ''
+        
+        # URL encode only the input part (the file path)
+        encoded_input = requests.utils.quote(input_part)
+        url = f"http://localhost:{port}/requests/status.json?command={cmd_part}&input={encoded_input}"
+
+    log_message(f"DEBUG: Sending VLC command to {url}")
     try:
-        # Use a session for potential connection pooling
         s = requests.Session()
         s.auth = ('', password)
         response = s.get(url, timeout=5)
+        log_message(f"DEBUG: VLC response status: {response.status_code}")
+        response_json = response.json()
+        log_message(f"DEBUG: VLC response body: {response_json}")
         response.raise_for_status()
-        return response.json()
+        return response_json
     except requests.exceptions.RequestException as e:
         log_message(f"Error sending command to VLC on port {port}: {e}")
+        return None
+    except Exception as e:
+        log_message(f"An unexpected error occurred when calling VLC: {e}")
         return None
 
 # --- Filler Music Control ---
@@ -176,29 +195,45 @@ def handle_play():
     # Find the video file, ignoring the specific extension
     video_path = None
     for f in os.listdir(VIDEO_DIR):
-        if f.startswith(video_id) and not f.endswith('.json'):
+        if f.startswith(video_id) and not f.endswith(('.json', '.webp', '.jpg')): # Exclude metadata/thumbnails
             video_path = os.path.join(VIDEO_DIR, f)
             break
 
     if not video_path:
-        return jsonify({"error": f"Video with ID {video_id} not found"}), 404
+        log_message(f"ERROR: Video file for ID '{video_id}' not found in {VIDEO_DIR}")
+        return jsonify({"error": f"Video file for ID {video_id} not found"}), 404
 
-    log_message(f"Received play request for video: {video_path}")
+    log_message(f"Attempting to play video: {video_path}")
+    
+    log_message("Pausing filler music...")
     control_filler_music('pause')
-    time.sleep(1) # Give music time to fade
+    time.sleep(0.5) # Give music time to fade
 
-    # Using in_enqueue to add to playlist, then playing the first item
+    log_message("Sending commands to Karaoke VLC...")
+    # 1. Clear the playlist
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
-    time.sleep(0.1)
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_enqueue&input={video_path}")
-    time.sleep(0.1)
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_play&id=0")
-    time.sleep(0.1)
+    time.sleep(0.2)
+    
+    # 2. Add the new video and play it immediately. This is more reliable.
+    play_command = f"in_play&input={video_path}"
+    play_response = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, play_command, is_path=True)
+    time.sleep(0.2)
+
+    # 3. Turn on fullscreen
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "fullscreen_on")
 
-
-    current_video_id = video_id
-    return jsonify({"success": True, "message": f"Playing {video_id}"})
+    # 4. Verify playback state
+    time.sleep(1) # Give VLC a moment to update its state
+    status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
+    if status and status.get('state') == 'playing':
+        log_message(f"SUCCESS: VLC reports playback started for {video_id}.")
+        current_video_id = video_id
+        return jsonify({"success": True, "message": f"Playing {video_id}"})
+    else:
+        log_message(f"ERROR: VLC did not confirm playback for {video_id}. Last status: {status}")
+        # Attempt to restart filler music as a fallback
+        control_filler_music('play')
+        return jsonify({"error": "VLC did not confirm playback. Check logs.", "vlc_status": status}), 500
 
 @app.route('/control', methods=['POST'])
 def handle_control():
