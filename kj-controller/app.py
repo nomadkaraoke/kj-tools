@@ -28,6 +28,7 @@ vlc_processes = {
 current_video_id = None
 downloaded_videos = {} # Cache for video titles
 filler_music_target_volume = 100 # Default volume for filler music (0-256)
+karaoke_music_target_volume = 200 # Default volume for karaoke video (0-256, 256 is 100%)
 karaoke_player_is_active = False # Tracks if a karaoke song is supposed to be playing
 
 # --- Logging ---
@@ -224,16 +225,20 @@ def handle_play():
     time.sleep(3.5) # Wait for fade to complete
 
     log_message("Sending commands to Karaoke VLC...")
-    # 1. Clear the playlist
+    # 1. Set the volume to the target level before playing
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}")
+    time.sleep(0.2)
+
+    # 2. Clear the playlist
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
     time.sleep(0.2)
     
-    # 2. Add the new video and play it immediately. This is more reliable.
+    # 3. Add the new video and play it immediately. This is more reliable.
     play_command = f"in_play&input={video_path}"
     play_response = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, play_command, is_path=True)
     time.sleep(0.2)
 
-    # 3. Verify playback state
+    # 4. Verify playback state
     time.sleep(1) # Give VLC a moment to update its state
     status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
     if status and status.get('state') == 'playing':
@@ -289,6 +294,8 @@ def handle_volume():
 
     if target == 'karaoke':
         port, password = KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD
+        global karaoke_music_target_volume
+        karaoke_music_target_volume = level
     elif target == 'filler':
         port, password = FILLER_VLC_PORT, FILLER_VLC_PASSWORD
         global filler_music_target_volume
