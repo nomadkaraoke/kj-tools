@@ -27,60 +27,87 @@
         .delete-btn:hover { background-color: #d15c66; }
         .volume-slider { width: 100%; }
         
-        /* New Layout Styles */
-        .main-grid {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 1.5rem;
-            align-items: start;
+        /* New Compact Layout Styles */
+        body {
+            max-width: 1400px;
+            margin: 1rem auto;
+            padding: 1rem;
         }
-        .left-column, .right-column {
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto 1fr;
+            grid-template-areas:
+                "col1 col2"
+                "footer footer";
+            gap: 1rem;
+            height: calc(100vh - 4rem); /* Full viewport height minus some padding */
+        }
+        .column {
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 1rem;
         }
-        body, .container { margin: 0; padding: 0; }
-        body { max-width: 1200px; margin: 2rem auto; padding: 1rem; }
-        .container { padding: 1.5rem; }
-        h1 { margin-bottom: 1.5rem; }
-
+        .container {
+            margin: 0;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+        }
+        .available-songs {
+            flex-grow: 1; /* Make this container take up remaining space */
+            min-height: 0; /* Needed for flex-grow to work in a flex column */
+        }
+        #video-list {
+            flex-grow: 1;
+            overflow-y: auto;
+            min-height: 0;
+        }
+        .footer-area {
+            grid-area: footer;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            max-height: 200px;
+        }
+        #log-area {
+            height: auto; /* Override fixed height */
+            max-height: 200px;
+        }
     </style>
 </head>
 <body>
-
-    <h1>🎤 KJ Remote Control</h1>
-
-    <div class="main-grid">
-        <div class="left-column">
+    <div class="main-layout">
+        <div class="column" id="col1">
             <div class="container">
                 <h2>📥 Download Song</h2>
-        <input type="url" id="youtube-url" placeholder="Enter YouTube URL">
-        <button id="download-btn" onclick="downloadSong()">Download</button>
-        <div id="download-status" class="hidden" style="margin-top: 10px;">Downloading... please wait.</div>
-    </div>
+                <input type="url" id="youtube-url" placeholder="Enter YouTube URL">
+                <button id="download-btn" onclick="downloadSong()">Download</button>
+                <div id="download-status" class="hidden" style="margin-top: 10px;">Downloading... please wait.</div>
+            </div>
+            <div class="container">
+                <h2>⏯️ Playback Controls</h2>
+                <div class="button-group">
+                    <button onclick="controlPlayback('pause_resume')">Pause / Resume</button>
+                    <button onclick="controlPlayback('restart')">Restart</button>
+                    <button onclick="controlPlayback('stop')">Stop & Play Music</button>
+                </div>
+                <div style="margin-top: 1rem;">
+                    <label for="karaoke-volume">Karaoke Volume:</label>
+                    <input type="range" id="karaoke-volume" class="volume-slider" min="0" max="256" value="200" oninput="setVolume('karaoke', this.value)">
+                </div>
+            </div>
+        </div>
 
-    <div class="container">
-        <h2>🎵 Available Songs</h2>
+        <div class="column" id="col2">
+            <div class="container available-songs">
+                <h2>🎵 Available Songs</h2>
                 <ul id="video-list">
                     <li>No songs downloaded yet.</li>
                 </ul>
             </div>
-
             <div class="container">
-                <h2>⏯️ Playback Controls</h2>
-        <div class="button-group">
-            <button onclick="controlPlayback('pause_resume')">Pause / Resume</button>
-            <button onclick="controlPlayback('restart')">Restart</button>
-            <button onclick="controlPlayback('stop')">Stop & Play Music</button>
-        </div>
-        <div style="margin-top: 1rem;">
-            <label for="karaoke-volume">Karaoke Volume:</label>
-            <input type="range" id="karaoke-volume" class="volume-slider" min="0" max="256" value="200" oninput="setVolume('karaoke', this.value)">
-        </div>
-    </div>
-
-    <div class="container">
-        <h2>🎶 Filler Music</h2>
+                <h2>🎶 Filler Music</h2>
                 <div>
                     <label for="filler-volume">Filler Music Volume:</label>
                     <input type="range" id="filler-volume" class="volume-slider" min="0" max="256" value="100" oninput="setVolume('filler', this.value)">
@@ -88,13 +115,12 @@
             </div>
         </div>
 
-        <div class="right-column">
+        <div class="footer-area">
             <div id="status-bar">
                 <strong>Status:</strong> <span id="player-state">Unknown</span> | 
                 <strong>Current Video:</strong> <span id="current-video">None</span> | 
                 <strong>Time:</strong> <span id="current-time">0:00</span> / <span id="total-time">0:00</span>
             </div>
-
             <div id="log-area"></div>
         </div>
     </div>
