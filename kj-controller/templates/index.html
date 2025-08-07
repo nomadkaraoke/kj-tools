@@ -26,14 +26,34 @@
         .delete-btn { background-color: #e06c75; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
         .delete-btn:hover { background-color: #d15c66; }
         .volume-slider { width: 100%; }
+        
+        /* New Layout Styles */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+        .left-column, .right-column {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        body, .container { margin: 0; padding: 0; }
+        body { max-width: 1200px; margin: 2rem auto; padding: 1rem; }
+        .container { padding: 1.5rem; }
+        h1 { margin-bottom: 1.5rem; }
+
     </style>
 </head>
 <body>
 
     <h1>🎤 KJ Remote Control</h1>
 
-    <div class="container">
-        <h2>📥 Download Song</h2>
+    <div class="main-grid">
+        <div class="left-column">
+            <div class="container">
+                <h2>📥 Download Song</h2>
         <input type="url" id="youtube-url" placeholder="Enter YouTube URL">
         <button id="download-btn" onclick="downloadSong()">Download</button>
         <div id="download-status" class="hidden" style="margin-top: 10px;">Downloading... please wait.</div>
@@ -41,13 +61,13 @@
 
     <div class="container">
         <h2>🎵 Available Songs</h2>
-        <ul id="video-list">
-            <li>No songs downloaded yet.</li>
-        </ul>
-    </div>
+                <ul id="video-list">
+                    <li>No songs downloaded yet.</li>
+                </ul>
+            </div>
 
-    <div class="container">
-        <h2>⏯️ Playback Controls</h2>
+            <div class="container">
+                <h2>⏯️ Playback Controls</h2>
         <div class="button-group">
             <button onclick="controlPlayback('pause_resume')">Pause / Resume</button>
             <button onclick="controlPlayback('restart')">Restart</button>
@@ -61,19 +81,23 @@
 
     <div class="container">
         <h2>🎶 Filler Music</h2>
-        <div>
-            <label for="filler-volume">Filler Music Volume:</label>
-            <input type="range" id="filler-volume" class="volume-slider" min="0" max="256" value="100" oninput="setVolume('filler', this.value)">
+                <div>
+                    <label for="filler-volume">Filler Music Volume:</label>
+                    <input type="range" id="filler-volume" class="volume-slider" min="0" max="256" value="100" oninput="setVolume('filler', this.value)">
+                </div>
+            </div>
+        </div>
+
+        <div class="right-column">
+            <div id="status-bar">
+                <strong>Status:</strong> <span id="player-state">Unknown</span> | 
+                <strong>Current Video:</strong> <span id="current-video">None</span> | 
+                <strong>Time:</strong> <span id="current-time">0:00</span> / <span id="total-time">0:00</span>
+            </div>
+
+            <div id="log-area"></div>
         </div>
     </div>
-
-    <div id="status-bar">
-        <strong>Status:</strong> <span id="player-state">Unknown</span> | 
-        <strong>Current Video:</strong> <span id="current-video">None</span> | 
-        <strong>Time:</strong> <span id="current-time">0:00</span> / <span id="total-time">0:00</span>
-    </div>
-
-    <div id="log-area"></div>
 
     <script>
         const logArea = document.getElementById('log-area');
