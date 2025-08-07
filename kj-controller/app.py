@@ -26,6 +26,7 @@ vlc_processes = {
     "filler": None
 }
 current_video_id = None
+downloaded_videos = {} # Cache for video titles
 
 # --- Logging ---
 def log_message(message):
@@ -67,9 +68,14 @@ def launch_vlc_instance(name, port, password, media_file=None, loop=False):
 
 def send_vlc_command(port, password, command):
     """Sends a command to a VLC HTTP interface."""
-    url = f"http://localhost:{port}/requests/status.json?command={command}"
+    # Properly encode the command to handle special characters in file paths
+    encoded_command = requests.utils.quote(command)
+    url = f"http://localhost:{port}/requests/status.json?command={encoded_command}"
     try:
-        response = requests.get(url, auth=('', password), timeout=3)
+        # Use a session for potential connection pooling
+        s = requests.Session()
+        s.auth = ('', password)
+        response = s.get(url, timeout=5)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -97,9 +103,10 @@ def control_filler_music(action):
 
 # --- YouTube Downloader ---
 def download_video(youtube_url):
-    """Downloads a YouTube video and returns the generated ID and title."""
+    """Downloads a YouTube video, saves metadata, and returns ID and title."""
     video_id = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=8))
-    output_template = os.path.join(VIDEO_DIR, f"{video_id}.%(ext)s")
+    # Note: The final extension is determined by yt-dlp, so we handle it later.
+    output_template = os.path.join(VIDEO_DIR, f"{video_id}")
 
     ydl_opts = {
         'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
@@ -108,13 +115,30 @@ def download_video(youtube_url):
         'force_overwrites': True,
         'quiet': True,
         'noplaylist': True,
+        'writethumbnail': True, # Save thumbnail
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(youtube_url, download=True)
             title = info.get('title', 'Unknown Title')
+            # The actual downloaded file path
+            downloaded_file = ydl.prepare_filename(info)
+
+            # Save metadata to a .json file
+            metadata = {
+                "id": video_id,
+                "title": title,
+                "original_url": youtube_url,
+                "download_date": time.time()
+            }
+            with open(f"{output_template}.json", "w") as f:
+                import json
+                json.dump(metadata, f)
+
             log_message(f"Successfully downloaded '{title}' with ID {video_id}")
+            # Update our in-memory cache
+            downloaded_videos[video_id] = title
             return video_id, title
     except Exception as e:
         log_message(f"Error downloading video: {e}")
@@ -149,19 +173,29 @@ def handle_play():
     if not video_id:
         return jsonify({"error": "Video ID is required"}), 400
 
-    video_path = os.path.join(VIDEO_DIR, f"{video_id}.mp4")
-    if not os.path.exists(video_path):
+    # Find the video file, ignoring the specific extension
+    video_path = None
+    for f in os.listdir(VIDEO_DIR):
+        if f.startswith(video_id) and not f.endswith('.json'):
+            video_path = os.path.join(VIDEO_DIR, f)
+            break
+
+    if not video_path:
         return jsonify({"error": f"Video with ID {video_id} not found"}), 404
 
-    log_message(f"Received play request for video ID: {video_id}")
+    log_message(f"Received play request for video: {video_path}")
     control_filler_music('pause')
     time.sleep(1) # Give music time to fade
 
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty") # Clear playlist
+    # Using in_enqueue to add to playlist, then playing the first item
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
     time.sleep(0.1)
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_play&input={video_path}")
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_enqueue&input={video_path}")
+    time.sleep(0.1)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_play&id=0")
     time.sleep(0.1)
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "fullscreen_on")
+
 
     current_video_id = video_id
     return jsonify({"success": True, "message": f"Playing {video_id}"})
@@ -192,6 +226,30 @@ def handle_control():
 
     return jsonify({"success": True, "message": f"Action '{action}' executed."})
 
+@app.route('/volume', methods=['POST'])
+def handle_volume():
+    """Handles volume control for karaoke or filler music."""
+    target = request.json.get('target')
+    level = request.json.get('level') # Should be 0-256 for VLC
+    if not all([target, level is not None]):
+        return jsonify({"error": "Target and level are required"}), 400
+
+    if target == 'karaoke':
+        port, password = KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD
+    elif target == 'filler':
+        port, password = FILLER_VLC_PORT, FILLER_VLC_PASSWORD
+    else:
+        return jsonify({"error": "Invalid target"}), 400
+
+    send_vlc_command(port, password, f"volume&val={level}")
+    log_message(f"Set volume for '{target}' to {level}")
+    return jsonify({"success": True})
+
+@app.route('/videos')
+def list_videos():
+    """Returns a list of all downloaded videos."""
+    return jsonify(downloaded_videos)
+
 @app.route('/status')
 def get_status():
     """Gets the status of the karaoke player."""
@@ -207,11 +265,25 @@ def get_status():
 
 
 # --- Main Execution ---
+def load_video_cache():
+    """Scans the video directory and populates the title cache."""
+    log_message("Loading video cache...")
+    os.makedirs(VIDEO_DIR, exist_ok=True)
+    for filename in os.listdir(VIDEO_DIR):
+        if filename.endswith(".json"):
+            try:
+                with open(os.path.join(VIDEO_DIR, filename), 'r') as f:
+                    import json
+                    metadata = json.load(f)
+                    downloaded_videos[metadata['id']] = metadata['title']
+            except Exception as e:
+                log_message(f"Could not load metadata from {filename}: {e}")
+    log_message(f"Loaded {len(downloaded_videos)} videos into cache.")
+
 def start_app():
     """Initializes and starts the application components."""
     log_message("--- KJ Controller Starting Up ---")
-    # Create necessary directories
-    os.makedirs(VIDEO_DIR, exist_ok=True)
+    load_video_cache()
 
     # Launch VLC instances in separate threads
     threading.Thread(target=launch_vlc_instance, args=("karaoke", KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD), daemon=True).start()

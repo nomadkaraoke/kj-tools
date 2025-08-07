@@ -17,6 +17,11 @@
         .log-entry { padding: 2px 0; border-bottom: 1px solid #353a42; }
         .log-entry.error { color: #e06c75; }
         .log-entry.success { color: #98c379; }
+        .hidden { display: none; }
+        #video-list { list-style-type: none; padding: 0; max-height: 200px; overflow-y: auto; }
+        #video-list li { padding: 8px; cursor: pointer; border-bottom: 1px solid #4f5661; }
+        #video-list li:hover { background-color: #4f5661; }
+        .volume-slider { width: 100%; }
     </style>
 </head>
 <body>
@@ -26,7 +31,15 @@
     <div class="container">
         <h2>📥 Download Song</h2>
         <input type="url" id="youtube-url" placeholder="Enter YouTube URL">
-        <button onclick="downloadSong()">Download</button>
+        <button id="download-btn" onclick="downloadSong()">Download</button>
+        <div id="download-status" class="hidden" style="margin-top: 10px;">Downloading... please wait.</div>
+    </div>
+
+    <div class="container">
+        <h2>🎵 Available Songs</h2>
+        <ul id="video-list">
+            <li>No songs downloaded yet.</li>
+        </ul>
     </div>
 
     <div class="container">
@@ -41,6 +54,18 @@
             <button onclick="controlPlayback('pause_resume')">Pause / Resume</button>
             <button onclick="controlPlayback('restart')">Restart</button>
             <button onclick="controlPlayback('stop')">Stop & Play Music</button>
+        </div>
+        <div style="margin-top: 1rem;">
+            <label for="karaoke-volume">Karaoke Volume:</label>
+            <input type="range" id="karaoke-volume" class="volume-slider" min="0" max="256" value="128" oninput="setVolume('karaoke', this.value)">
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>🎶 Filler Music</h2>
+        <div>
+            <label for="filler-volume">Filler Music Volume:</label>
+            <input type="range" id="filler-volume" class="volume-slider" min="0" max="256" value="100" oninput="setVolume('filler', this.value)">
         </div>
     </div>
 
@@ -81,17 +106,30 @@
         }
 
         async function downloadSong() {
-            const url = document.getElementById('youtube-url').value;
+            const urlInput = document.getElementById('youtube-url');
+            const downloadBtn = document.getElementById('download-btn');
+            const downloadStatus = document.getElementById('download-status');
+
+            const url = urlInput.value;
             if (!url) {
                 log('Please enter a YouTube URL.', 'error');
                 return;
             }
+
             log(`Downloading: ${url}`);
+            downloadBtn.disabled = true;
+            downloadStatus.classList.remove('hidden');
+
             const data = await apiCall('/download', { url });
+
+            downloadBtn.disabled = false;
+            downloadStatus.classList.add('hidden');
+
             if (data && data.success) {
                 log(`Downloaded "${data.title}" successfully! ID: ${data.video_id}`, 'success');
                 document.getElementById('video-id').value = data.video_id;
-                document.getElementById('youtube-url').value = '';
+                urlInput.value = '';
+                await updateVideoList(); // Refresh the list of videos
             }
         }
 
@@ -108,6 +146,37 @@
         async function controlPlayback(action) {
             log(`Sending control: ${action}`);
             await apiCall('/control', { action });
+        }
+
+        async function setVolume(target, level) {
+            log(`Setting ${target} volume to ${level}`);
+            await apiCall('/volume', { target, level: parseInt(level) });
+        }
+
+        async function updateVideoList() {
+            try {
+                const response = await fetch('/videos');
+                const videos = await response.json();
+                const videoList = document.getElementById('video-list');
+                videoList.innerHTML = ''; // Clear existing list
+
+                if (Object.keys(videos).length === 0) {
+                    videoList.innerHTML = '<li>No songs downloaded yet.</li>';
+                    return;
+                }
+
+                for (const id in videos) {
+                    const li = document.createElement('li');
+                    li.textContent = `${videos[id]} (ID: ${id})`;
+                    li.onclick = () => {
+                        document.getElementById('video-id').value = id;
+                        log(`Selected "${videos[id]}"`);
+                    };
+                    videoList.appendChild(li);
+                }
+            } catch (error) {
+                log('Could not update video list.', 'error');
+            }
         }
 
         function formatTime(seconds) {
@@ -132,9 +201,15 @@
             }
         }
 
+        // Initial setup
+        document.addEventListener('DOMContentLoaded', () => {
+            updateStatus();
+            updateVideoList();
+            log('KJ Remote initialized.');
+        });
+
         // Update status every 2 seconds
         setInterval(updateStatus, 2000);
-        log('KJ Remote initialized.');
     </script>
 
 </body>
