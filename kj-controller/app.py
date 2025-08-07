@@ -473,20 +473,22 @@ def monitor_karaoke_player():
         if not karaoke_player_is_active:
             continue
 
+        # If a song is supposed to be active, get its status.
         status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "", debug=False)
-        if status:
-            # If state is stopped, the song ended
-            if status.get('state') == 'stopped':
-                log_message("Karaoke video finished playing.")
-                karaoke_player_is_active = False
-                current_video_id = None
-                fade_in_filler()
-                # Send a final stop event
-                socketio.emit('player_action', {'action': 'stop'})
-            # Otherwise, if it's playing, send a sync event
-            elif status.get('state') == 'playing':
-                current_time = status.get('time', 0)
-                socketio.emit('sync', {'time': current_time})
+        if not status:
+            continue
+
+        # If VLC reports it's playing, send a sync event with the current time.
+        if status.get('state') == 'playing':
+            current_time = status.get('time', 0)
+            socketio.emit('sync', {'time': current_time})
+        # If VLC reports it's stopped, the song has ended.
+        elif status.get('state') == 'stopped':
+            log_message("Karaoke video finished playing.")
+            karaoke_player_is_active = False
+            current_video_id = None
+            fade_in_filler()
+            socketio.emit('player_action', {'action': 'stop'})
 
 def start_app():
     """Initializes and starts the application components."""
