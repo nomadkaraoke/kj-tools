@@ -5,20 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KJ Remote</title>
     <style>
-        body { font-family: sans-serif; background-color: #282c34; color: #abb2bf; max-width: 800px; margin: 2rem auto; padding: 1rem; }
-        .container { background-color: #353a42; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
-        h2 { color: #61afef; border-bottom: 2px solid #61afef; padding-bottom: 0.5rem; }
+        body { font-family: sans-serif; background-color: #282c34; color: #abb2bf; }
+        .container { background-color: #353a42; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        h2 { color: #61afef; border-bottom: 2px solid #61afef; padding-bottom: 0.5rem; margin-top: 0; }
         input[type="text"], input[type="url"] { width: calc(100% - 22px); padding: 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #4f5661; background-color: #2c313a; color: #abb2bf; }
         button { background-color: #61afef; color: #282c34; border: none; padding: 12px 18px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background-color 0.2s; }
         button:hover { background-color: #529bdf; }
         .button-group button { margin-right: 10px; }
-        #status-bar { margin-top: 1rem; padding: 1rem; background-color: #2c313a; border-radius: 4px; }
-        #log-area { margin-top: 1rem; padding: 1rem; background-color: #21252b; border-radius: 4px; height: 150px; overflow-y: scroll; font-family: monospace; font-size: 0.9em; }
         .log-entry { padding: 2px 0; border-bottom: 1px solid #353a42; }
         .log-entry.error { color: #e06c75; }
         .log-entry.success { color: #98c379; }
         .hidden { display: none; }
-        #video-list { list-style-type: none; padding: 0; max-height: 300px; overflow-y: auto; border: 1px solid #4f5661; border-radius: 4px; }
+        #video-list { list-style-type: none; padding: 0; border: 1px solid #4f5661; border-radius: 4px; }
         #video-list li { padding: 10px; cursor: pointer; border-bottom: 1px solid #4f5661; display: flex; justify-content: space-between; align-items: center; transition: background-color 0.2s; }
         #video-list li:last-child { border-bottom: none; }
         #video-list li:hover { background-color: #4f5661; }
@@ -41,12 +39,13 @@
                 "col1 col2"
                 "footer footer";
             gap: 1rem;
-            height: calc(100vh - 4rem); /* Full viewport height minus some padding */
+            height: calc(100vh - 4rem);
         }
         .column {
             display: flex;
             flex-direction: column;
             gap: 1rem;
+            min-height: 0;
         }
         .container {
             margin: 0;
@@ -55,8 +54,8 @@
             flex-direction: column;
         }
         .available-songs {
-            flex-grow: 1; /* Make this container take up remaining space */
-            min-height: 0; /* Needed for flex-grow to work in a flex column */
+            flex-grow: 1;
+            min-height: 0;
         }
         #video-list {
             flex-grow: 1;
@@ -70,9 +69,17 @@
             gap: 1rem;
             max-height: 200px;
         }
+        #status-bar, #log-area {
+            padding: 1rem;
+            background-color: #2c313a;
+            border-radius: 4px;
+        }
         #log-area {
-            height: auto; /* Override fixed height */
+            height: auto;
             max-height: 200px;
+            overflow-y: scroll;
+            font-family: monospace;
+            font-size: 0.9em;
         }
     </style>
 </head>
@@ -96,6 +103,10 @@
                     <label for="karaoke-volume">Karaoke Volume:</label>
                     <input type="range" id="karaoke-volume" class="volume-slider" min="0" max="256" value="200" oninput="setVolume('karaoke', this.value)">
                 </div>
+                <div style="margin-top: 1rem;">
+                    <label for="filler-volume">Filler Music Volume:</label>
+                    <input type="range" id="filler-volume" class="volume-slider" min="0" max="256" value="100" oninput="setVolume('filler', this.value)">
+                </div>
             </div>
         </div>
 
@@ -105,13 +116,6 @@
                 <ul id="video-list">
                     <li>No songs downloaded yet.</li>
                 </ul>
-            </div>
-            <div class="container">
-                <h2>🎶 Filler Music</h2>
-                <div>
-                    <label for="filler-volume">Filler Music Volume:</label>
-                    <input type="range" id="filler-volume" class="volume-slider" min="0" max="256" value="100" oninput="setVolume('filler', this.value)">
-                </div>
             </div>
         </div>
 
@@ -144,7 +148,6 @@
                 });
                 const data = await response.json();
                 if (!response.ok) {
-                    // Construct a more detailed error message
                     let errorMessage = data.error || 'API request failed';
                     if (data.vlc_status) {
                         errorMessage += ` | VLC Status: ${JSON.stringify(data.vlc_status)}`;
@@ -162,27 +165,21 @@
             const urlInput = document.getElementById('youtube-url');
             const downloadBtn = document.getElementById('download-btn');
             const downloadStatus = document.getElementById('download-status');
-
             const url = urlInput.value;
             if (!url) {
                 log('Please enter a YouTube URL.', 'error');
                 return;
             }
-
             log(`Downloading: ${url}`);
             downloadBtn.disabled = true;
             downloadStatus.classList.remove('hidden');
-
             const data = await apiCall('/download', { url });
-
             downloadBtn.disabled = false;
             downloadStatus.classList.add('hidden');
-
             if (data && data.success) {
                 log(`Downloaded "${data.title}" successfully! ID: ${data.video_id}`, 'success');
-                document.getElementById('video-id').value = data.video_id;
                 urlInput.value = '';
-                await updateVideoList(); // Refresh the list of videos
+                await updateVideoList();
             }
         }
 
@@ -220,10 +217,9 @@
         async function updateVideoList() {
             try {
                 const response = await fetch('/videos');
-                const videos = await response.json(); // The backend now sends a sorted array of objects
+                const videos = await response.json();
                 const videoList = document.getElementById('video-list');
-                videoList.innerHTML = ''; // Clear existing list
-
+                videoList.innerHTML = '';
                 if (videos.length === 0) {
                     const li = document.createElement('li');
                     li.textContent = 'No songs downloaded yet.';
@@ -231,33 +227,25 @@
                     videoList.appendChild(li);
                     return;
                 }
-
                 videos.forEach(video => {
                     const li = document.createElement('li');
-                    li.id = `video-item-${video.id}`; // Add an ID for easy selection
-                    
+                    li.id = `video-item-${video.id}`;
                     const titleSpan = document.createElement('span');
                     titleSpan.textContent = video.title;
-                    
                     const deleteBtn = document.createElement('button');
                     deleteBtn.textContent = 'Delete';
                     deleteBtn.className = 'delete-btn';
                     deleteBtn.onclick = (e) => {
-                        e.stopPropagation(); // Prevent the li's click event from firing
+                        e.stopPropagation();
                         deleteSong(video.id, video.title);
                     };
-                    
                     li.appendChild(titleSpan);
                     li.appendChild(deleteBtn);
-
-                    // Click the entire list item to play
                     li.onclick = () => {
-                        // Visual feedback: highlight the clicked item
                         document.querySelectorAll('#video-list li').forEach(item => item.classList.remove('playing'));
                         li.classList.add('playing');
                         playSong(video.id);
                     };
-
                     videoList.appendChild(li);
                 });
             } catch (error) {
@@ -287,16 +275,13 @@
             }
         }
 
-        // Initial setup
         document.addEventListener('DOMContentLoaded', () => {
             updateStatus();
             updateVideoList();
             log('KJ Remote initialized.');
         });
 
-        // Update status every 2 seconds
         setInterval(updateStatus, 2000);
     </script>
-
 </body>
 </html>
