@@ -217,8 +217,13 @@ def handle_play():
 
     log_message(f"Attempting to play video: {video_path}")
     
-    fade_out_filler()
-    time.sleep(3.5) # Wait for fade to complete
+    # Check if a song is already playing/paused. If so, don't fade.
+    status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
+    if status and status.get('state') != 'stopped':
+        log_message("Karaoke player is already active. Skipping filler music fade-out.")
+    else:
+        fade_out_filler()
+        time.sleep(3.5) # Wait for fade to complete ONLY when coming from filler music
 
     log_message("Sending commands to Karaoke VLC...")
     # 1. Set the volume to the target level before playing

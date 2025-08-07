@@ -19,9 +19,10 @@
         .log-entry.success { color: #98c379; }
         .hidden { display: none; }
         #video-list { list-style-type: none; padding: 0; max-height: 300px; overflow-y: auto; border: 1px solid #4f5661; border-radius: 4px; }
-        #video-list li { padding: 10px; cursor: pointer; border-bottom: 1px solid #4f5661; display: flex; justify-content: space-between; align-items: center; }
+        #video-list li { padding: 10px; cursor: pointer; border-bottom: 1px solid #4f5661; display: flex; justify-content: space-between; align-items: center; transition: background-color 0.2s; }
         #video-list li:last-child { border-bottom: none; }
         #video-list li:hover { background-color: #4f5661; }
+        #video-list li.playing { background-color: #98c379; color: #282c34; }
         .delete-btn { background-color: #e06c75; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
         .delete-btn:hover { background-color: #d15c66; }
         .volume-slider { width: 100%; }
@@ -174,29 +175,39 @@
                 videoList.innerHTML = ''; // Clear existing list
 
                 if (videos.length === 0) {
-                    videoList.innerHTML = '<li>No songs downloaded yet.</li>';
+                    const li = document.createElement('li');
+                    li.textContent = 'No songs downloaded yet.';
+                    li.style.cursor = 'default';
+                    videoList.appendChild(li);
                     return;
                 }
 
                 videos.forEach(video => {
                     const li = document.createElement('li');
+                    li.id = `video-item-${video.id}`; // Add an ID for easy selection
                     
                     const titleSpan = document.createElement('span');
                     titleSpan.textContent = video.title;
-                    // Clicking the title plays the song
-                    titleSpan.onclick = () => playSong(video.id);
                     
                     const deleteBtn = document.createElement('button');
                     deleteBtn.textContent = 'Delete';
                     deleteBtn.className = 'delete-btn';
-                    // Stop propagation to prevent the li's click event from firing
                     deleteBtn.onclick = (e) => {
-                        e.stopPropagation();
+                        e.stopPropagation(); // Prevent the li's click event from firing
                         deleteSong(video.id, video.title);
                     };
                     
                     li.appendChild(titleSpan);
                     li.appendChild(deleteBtn);
+
+                    // Click the entire list item to play
+                    li.onclick = () => {
+                        // Visual feedback: highlight the clicked item
+                        document.querySelectorAll('#video-list li').forEach(item => item.classList.remove('playing'));
+                        li.classList.add('playing');
+                        playSong(video.id);
+                    };
+
                     videoList.appendChild(li);
                 });
             } catch (error) {
