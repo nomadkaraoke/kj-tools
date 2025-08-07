@@ -220,63 +220,65 @@ def video_stream(video_id):
 
 @app.route('/play', methods=['POST'])
 def handle_play():
-    """Handles the video playback request."""
+    """Handles the video playback request with preloading."""
     global current_video_id
     video_id = request.json.get('video_id')
     if not video_id:
         return jsonify({"error": "Video ID is required"}), 400
 
-    # Find the video file, ignoring the specific extension
+    log_message(f"Received play request for {video_id}. Initiating preload.")
+    current_video_id = video_id # Set this early
+
+    # Broadcast a preload event to all clients
+    socketio.emit('player_action', {'action': 'preload', 'video_id': video_id})
+
+    # The rest of the play logic is now handled by the 'video_ready' socket event
+    return jsonify({"success": True, "message": "Preload initiated."})
+
+@socketio.on('video_ready')
+def on_video_ready(data):
+    """
+    This event is triggered by the external screen when it has buffered
+    enough of the video to start playing.
+    """
+    video_id = data.get('video_id')
+    log_message(f"Client is ready to play {video_id}. Starting playback now.")
+
+    # Find the video file path
     video_path = None
     for f in os.listdir(VIDEO_DIR):
-        if f.startswith(video_id) and not f.endswith(('.json', '.webp', '.jpg')): # Exclude metadata/thumbnails
+        if f.startswith(video_id) and not f.endswith(('.json', '.webp', '.jpg')):
             video_path = os.path.join(VIDEO_DIR, f)
             break
 
     if not video_path:
-        log_message(f"ERROR: Video file for ID '{video_id}' not found in {VIDEO_DIR}")
-        return jsonify({"error": f"Video file for ID {video_id} not found"}), 404
+        log_message(f"ERROR: Could not find video path for {video_id} on ready signal.")
+        return
 
-    log_message(f"Attempting to play video: {video_path}")
-    
+    # --- Start Playback on Master VLC ---
     # Check if a song is already playing/paused. If so, don't fade.
     status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
     if status and status.get('state') != 'stopped':
         log_message("Karaoke player is already active. Skipping filler music fade-out.")
     else:
         fade_out_filler()
-        time.sleep(3.5) # Wait for fade to complete ONLY when coming from filler music
+        time.sleep(3.5) # Wait for fade to complete
 
     log_message("Sending commands to Karaoke VLC...")
-    # 1. Set the volume to the target level before playing
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}", debug=True)
-    time.sleep(0.2)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}")
+    time.sleep(0.1)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
+    time.sleep(0.1)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_play&input={video_path}", is_path=True)
+    time.sleep(0.1)
 
-    # 2. Clear the playlist
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty", debug=True)
-    time.sleep(0.2)
+    # --- Broadcast Play Now signal ---
+    # This tells all clients (including the one that sent 'video_ready') to start.
+    socketio.emit('player_action', {'action': 'play_now'})
     
-    # 3. Add the new video and play it immediately. This is more reliable.
-    play_command = f"in_play&input={video_path}"
-    play_response = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, play_command, is_path=True, debug=True)
-    time.sleep(0.2)
-
-    # 4. Verify playback state
-    time.sleep(1) # Give VLC a moment to update its state
-    status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "", debug=True)
-    if status and status.get('state') == 'playing':
-        log_message(f"SUCCESS: VLC reports playback started for {video_id}.")
-        global karaoke_player_is_active
-        karaoke_player_is_active = True
-        current_video_id = video_id
-        # Broadcast the play event to all clients
-        socketio.emit('player_action', {'action': 'play', 'video_id': video_id})
-        return jsonify({"success": True, "message": f"Playing {video_id}"})
-    else:
-        log_message(f"ERROR: VLC did not confirm playback for {video_id}. Last status: {status}")
-        # Attempt to restart filler music as a fallback
-        fade_in_filler()
-        return jsonify({"error": "VLC did not confirm playback. Check logs.", "vlc_status": status}), 500
+    global karaoke_player_is_active
+    karaoke_player_is_active = True
+    log_message(f"Playback started for {video_id}.")
 
 @app.route('/control', methods=['POST'])
 def handle_control():

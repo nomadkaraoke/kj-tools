@@ -40,11 +40,28 @@
             socket.on('player_action', (data) => {
                 console.log('Received player action:', data);
                 switch (data.action) {
-                    case 'play':
+                    case 'preload':
                         const videoUrl = `/video/${data.video_id}`;
-                        if (video.src !== window.location.origin + videoUrl) {
-                            video.src = videoUrl;
-                        }
+                        console.log(`Preloading video: ${videoUrl}`);
+                        // Set src and preload attribute
+                        video.src = videoUrl;
+                        video.preload = 'auto';
+                        
+                        // Define a handler for the canplaythrough event
+                        const onCanPlayThrough = () => {
+                            console.log('Video is buffered and ready to play.');
+                            // Emit 'video_ready' back to the server
+                            socket.emit('video_ready', { video_id: data.video_id });
+                            // Remove the event listener so it doesn't fire again
+                            video.removeEventListener('canplaythrough', onCanPlayThrough);
+                        };
+                        
+                        // Add the event listener
+                        video.addEventListener('canplaythrough', onCanPlayThrough, { once: true });
+                        video.load(); // Start loading the video
+                        break;
+                    case 'play_now':
+                        console.log('Received play_now command. Starting playback.');
                         video.play();
                         break;
                     case 'pause':
