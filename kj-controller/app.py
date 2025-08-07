@@ -4,7 +4,8 @@ import threading
 import time
 import random
 import requests
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask_socketio import SocketIO
 import yt_dlp
 
 # --- Configuration ---
@@ -18,6 +19,7 @@ LOG_FILE = os.path.expanduser("~/kj-controller.log")
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
+socketio = SocketIO(app, async_mode='threading')
 
 # --- Global State ---
 # This will hold the subprocess objects for our VLC instances
@@ -196,6 +198,26 @@ def handle_download():
     else:
         return jsonify({"error": "Failed to download video"}), 500
 
+@app.route('/externalscreen')
+def external_screen():
+    """Serves the external player page."""
+    return render_template('external_screen.html')
+
+@app.route('/video/<video_id>')
+def video_stream(video_id):
+    """Streams the video file."""
+    # Find the video file, ignoring the specific extension
+    video_path = None
+    found_filename = None
+    for f in os.listdir(VIDEO_DIR):
+        if f.startswith(video_id) and not f.endswith(('.json', '.webp', '.jpg')):
+            video_path = VIDEO_DIR
+            found_filename = f
+            break
+    if not video_path:
+        return "Video not found", 404
+    return send_from_directory(video_path, found_filename)
+
 @app.route('/play', methods=['POST'])
 def handle_play():
     """Handles the video playback request."""
@@ -247,6 +269,8 @@ def handle_play():
         global karaoke_player_is_active
         karaoke_player_is_active = True
         current_video_id = video_id
+        # Broadcast the play event to all clients
+        socketio.emit('player_action', {'action': 'play', 'video_id': video_id})
         return jsonify({"success": True, "message": f"Playing {video_id}"})
     else:
         log_message(f"ERROR: VLC did not confirm playback for {video_id}. Last status: {status}")
@@ -271,17 +295,21 @@ def handle_control():
         if status and status.get('state') == 'paused':
             karaoke_player_is_active = False
             fade_in_filler()
+            socketio.emit('player_action', {'action': 'pause'})
         else:
             karaoke_player_is_active = True
             fade_out_filler()
+            socketio.emit('player_action', {'action': 'resume'})
     elif action == 'restart':
         send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "seek&val=0")
+        socketio.emit('player_action', {'action': 'restart'})
     elif action == 'stop':
         send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_stop")
         karaoke_player_is_active = False
         global current_video_id
         current_video_id = None
         fade_in_filler()
+        socketio.emit('player_action', {'action': 'stop'})
 
     return jsonify({"success": True, "message": f"Action '{action}' executed."})
 
@@ -397,21 +425,27 @@ def load_video_cache():
     log_message(f"Loaded {len(downloaded_videos)} videos into cache.")
 
 def monitor_karaoke_player():
-    """A background thread to check if a song has ended and trigger filler music."""
+    """A background thread to check if a song has ended and broadcast sync events."""
     global karaoke_player_is_active, current_video_id
     while True:
-        time.sleep(2)
+        time.sleep(2) # Sync interval
         if not karaoke_player_is_active:
             continue
 
-        # Use debug=False to prevent spamming the logs
         status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "", debug=False)
-        # 'state' becomes 'stopped' when a video finishes
-        if status and status.get('state') == 'stopped':
-            log_message("Karaoke video finished playing.")
-            karaoke_player_is_active = False
-            current_video_id = None
-            fade_in_filler()
+        if status:
+            # If state is stopped, the song ended
+            if status.get('state') == 'stopped':
+                log_message("Karaoke video finished playing.")
+                karaoke_player_is_active = False
+                current_video_id = None
+                fade_in_filler()
+                # Send a final stop event
+                socketio.emit('player_action', {'action': 'stop'})
+            # Otherwise, if it's playing, send a sync event
+            elif status.get('state') == 'playing':
+                current_time = status.get('time', 0)
+                socketio.emit('sync', {'time': current_time})
 
 def start_app():
     """Initializes and starts the application components."""
@@ -432,9 +466,9 @@ def start_app():
     monitor_thread = threading.Thread(target=monitor_karaoke_player, daemon=True)
     monitor_thread.start()
 
-    # Start Flask app
-    log_message("Starting Flask server...")
-    app.run(host='0.0.0.0', port=5000)
+    # Start Flask app using SocketIO
+    log_message("Starting Flask-SocketIO server...")
+    socketio.run(app, host='0.0.0.0', port=5000)
 
 if __name__ == '__main__':
     start_app()

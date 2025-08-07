@@ -8,14 +8,22 @@ This system was created to solve the problem of managing karaoke playback from a
 
 ## 2. Features
 
-*   **Remote Playback Control:** A simple web interface to play, pause, restart, and stop karaoke videos.
-*   **YouTube Pre-Downloading:** Download karaoke videos from YouTube in the best possible quality. Each video is assigned a unique ID for easy reference and playback.
-*   **Automated Filler Music:** Plays background music from a local file (`~/kjdata/wii.mp3`) during downtime.
-*   **Smooth Audio Fading:** Automatically fades the filler music out over 3 seconds when a karaoke video starts, and fades it back in over 3 seconds when a video is paused, stopped, or ends naturally.
+*   **One-Click Play:** Click any song in the "Available Songs" list to play it immediately.
+*   **YouTube Pre-Downloading:** Download karaoke videos from YouTube in their best available quality. Each video is assigned a unique ID for easy management.
+*   **Song Deletion:** Easily remove downloaded songs from the library with a delete button.
+*   **Automated Filler Music:** Plays background music from a local file during downtime between songs.
+*   **Intelligent Audio Fading:**
+    *   Filler music fades out over 3 seconds when a karaoke video starts.
+    *   Filler music fades back in over 3 seconds when a video is paused, stopped, or ends naturally.
+    *   Transitions between two karaoke songs are instantaneous, with no fade.
 *   **Live Status Updates:** The remote interface shows the current player state, the ID of the playing video, and a time progress bar.
-*   **Downloaded Song Library:** The interface displays a clickable list of all downloaded songs, making it easy to select the next track.
-*   **Independent Volume Controls:** Separate, persistent volume sliders for the karaoke video and the filler music.
-*   **Always Fullscreen:** The karaoke video player is configured to always be in fullscreen mode.
+*   **Optimized UI:**
+    *   A compact, two-column layout ensures all critical controls are visible on a single screen without scrolling.
+    *   The song list is sorted by download time (newest first) and is scrollable to handle a large library.
+    *   Visual feedback is provided when a song is selected for playback.
+*   **Independent Volume Controls:** Separate, persistent volume sliders for the karaoke video and the filler music, consolidated in the main playback control area.
+*   **Always Fullscreen:** The karaoke video player is configured to always launch and remain in fullscreen mode.
+*   **Synchronized External Player:** A second, browser-based player screen can be opened on any device on the network. It plays the same video as the main screen, synchronized in real-time.
 
 ## 3. Architecture
 
@@ -93,6 +101,10 @@ sudo apt-get install vlc python3 python3-venv python3-pip
 3.  **Access the Remote:**
     *   Find your playback machine's local IP address (`ip a`).
     *   On another computer on the same network, open a web browser and go to `http://<YOUR_PC_IP>:5000`.
+
+4.  **Access the External Player (Optional):**
+    *   To use a second screen for lyrics, open a browser on another device (like a laptop or tablet) and navigate to `http://<YOUR_PC_IP>:5000/externalscreen`.
+    *   This screen will automatically play, pause, and sync with the main karaoke video.
 
 ## 6. Configuration
 
