@@ -270,9 +270,6 @@ def trigger_playback(video_id):
     external_client_ready.clear()
     master_vlc_ready.clear()
 
-@app.route('/play', methods=['POST'])
-def handle_play():
-    """Handles the video playback request with preloading."""
     global current_video_id
     video_id = request.json.get('video_id')
     if not video_id:
