@@ -305,8 +305,56 @@ def handle_volume():
 
 @app.route('/videos')
 def list_videos():
-    """Returns a list of all downloaded videos."""
-    return jsonify(downloaded_videos)
+    """Returns a list of all downloaded videos, sorted by download date."""
+    video_details = []
+    for video_id, title in downloaded_videos.items():
+        json_path = os.path.join(VIDEO_DIR, f"{video_id}.json")
+        if os.path.exists(json_path):
+            try:
+                with open(json_path, 'r') as f:
+                    import json
+                    metadata = json.load(f)
+                    video_details.append({
+                        "id": video_id,
+                        "title": title,
+                        "date": metadata.get("download_date", 0)
+                    })
+            except Exception as e:
+                log_message(f"Could not read metadata for {video_id}: {e}")
+    
+    # Sort by date, newest first
+    sorted_videos = sorted(video_details, key=lambda x: x['date'], reverse=True)
+    return jsonify(sorted_videos)
+
+@app.route('/delete', methods=['POST'])
+def delete_video():
+    """Deletes a video and its associated files."""
+    video_id = request.json.get('video_id')
+    if not video_id:
+        return jsonify({"error": "Video ID is required"}), 400
+
+    log_message(f"Received delete request for video ID: {video_id}")
+    
+    # Remove from cache
+    if video_id in downloaded_videos:
+        del downloaded_videos[video_id]
+
+    # Find and delete all associated files
+    files_deleted = False
+    for filename in os.listdir(VIDEO_DIR):
+        if filename.startswith(video_id):
+            try:
+                os.remove(os.path.join(VIDEO_DIR, filename))
+                log_message(f"Deleted file: {filename}")
+                files_deleted = True
+            except Exception as e:
+                log_message(f"Error deleting file {filename}: {e}")
+                return jsonify({"error": f"Error deleting file {filename}"}), 500
+    
+    if files_deleted:
+        return jsonify({"success": True, "message": f"Deleted video {video_id}"})
+    else:
+        return jsonify({"error": "Video not found"}), 404
 
 @app.route('/status')
 def get_status():

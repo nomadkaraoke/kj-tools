@@ -18,9 +18,12 @@
         .log-entry.error { color: #e06c75; }
         .log-entry.success { color: #98c379; }
         .hidden { display: none; }
-        #video-list { list-style-type: none; padding: 0; max-height: 200px; overflow-y: auto; }
-        #video-list li { padding: 8px; cursor: pointer; border-bottom: 1px solid #4f5661; }
+        #video-list { list-style-type: none; padding: 0; max-height: 300px; overflow-y: auto; border: 1px solid #4f5661; border-radius: 4px; }
+        #video-list li { padding: 10px; cursor: pointer; border-bottom: 1px solid #4f5661; display: flex; justify-content: space-between; align-items: center; }
+        #video-list li:last-child { border-bottom: none; }
         #video-list li:hover { background-color: #4f5661; }
+        .delete-btn { background-color: #e06c75; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .delete-btn:hover { background-color: #d15c66; }
         .volume-slider { width: 100%; }
     </style>
 </head>
@@ -40,12 +43,6 @@
         <ul id="video-list">
             <li>No songs downloaded yet.</li>
         </ul>
-    </div>
-
-    <div class="container">
-        <h2>▶️ Play Song</h2>
-        <input type="text" id="video-id" placeholder="Enter Video ID">
-        <button onclick="playSong()">Play</button>
     </div>
 
     <div class="container">
@@ -138,14 +135,25 @@
             }
         }
 
-        async function playSong() {
-            const videoId = document.getElementById('video-id').value;
+        async function playSong(videoId) {
             if (!videoId) {
-                log('Please enter a Video ID.', 'error');
+                log('Cannot play song: videoId is missing.', 'error');
                 return;
             }
             log(`Playing video ID: ${videoId}`);
             await apiCall('/play', { video_id: videoId });
+        }
+
+        async function deleteSong(videoId, videoTitle) {
+            if (!confirm(`Are you sure you want to delete "${videoTitle}"?`)) {
+                return;
+            }
+            log(`Deleting video ID: ${videoId}`);
+            const data = await apiCall('/delete', { video_id: videoId });
+            if (data && data.success) {
+                log(`Successfully deleted "${videoTitle}"`, 'success');
+                await updateVideoList();
+            }
         }
 
         async function controlPlayback(action) {
@@ -161,24 +169,36 @@
         async function updateVideoList() {
             try {
                 const response = await fetch('/videos');
-                const videos = await response.json();
+                const videos = await response.json(); // The backend now sends a sorted array of objects
                 const videoList = document.getElementById('video-list');
                 videoList.innerHTML = ''; // Clear existing list
 
-                if (Object.keys(videos).length === 0) {
+                if (videos.length === 0) {
                     videoList.innerHTML = '<li>No songs downloaded yet.</li>';
                     return;
                 }
 
-                for (const id in videos) {
+                videos.forEach(video => {
                     const li = document.createElement('li');
-                    li.textContent = `${videos[id]} (ID: ${id})`;
-                    li.onclick = () => {
-                        document.getElementById('video-id').value = id;
-                        log(`Selected "${videos[id]}"`);
+                    
+                    const titleSpan = document.createElement('span');
+                    titleSpan.textContent = video.title;
+                    // Clicking the title plays the song
+                    titleSpan.onclick = () => playSong(video.id);
+                    
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.textContent = 'Delete';
+                    deleteBtn.className = 'delete-btn';
+                    // Stop propagation to prevent the li's click event from firing
+                    deleteBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        deleteSong(video.id, video.title);
                     };
+                    
+                    li.appendChild(titleSpan);
+                    li.appendChild(deleteBtn);
                     videoList.appendChild(li);
-                }
+                });
             } catch (error) {
                 log('Could not update video list.', 'error');
             }
