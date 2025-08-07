@@ -21,7 +21,7 @@
     </style>
 </head>
 <body>
-    <video id="video-player" playsinline></video>
+    <video id="video-player" playsinline muted></video>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
     <script>
@@ -63,6 +63,7 @@
                     case 'play_now':
                         console.log('Received play_now command. Starting playback.');
                         video.play();
+                        video.muted = false; // Unmute after playback starts
                         break;
                     case 'pause':
                         video.pause();

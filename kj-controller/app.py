@@ -255,8 +255,16 @@ def on_video_ready(data):
         log_message(f"ERROR: Could not find video path for {video_id} on ready signal.")
         return
 
+    # --- Broadcast Play Now signal to external screen FIRST ---
+    log_message(f"Telling external screen to play {video_id}.")
+    socketio.emit('player_action', {'action': 'play_now'})
+
+    # Optional: A small delay to give the network a head start.
+    # This ensures the external screen starts before the main display.
+    time.sleep(0.15) # 150ms delay
+
     # --- Start Playback on Master VLC ---
-    # Check if a song is already playing/paused. If so, don't fade.
+    log_message(f"Telling master VLC to play {video_id}.")
     status = send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "")
     if status and status.get('state') != 'stopped':
         log_message("Karaoke player is already active. Skipping filler music fade-out.")
@@ -264,21 +272,15 @@ def on_video_ready(data):
         fade_out_filler()
         time.sleep(3.5) # Wait for fade to complete
 
-    log_message("Sending commands to Karaoke VLC...")
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}")
     time.sleep(0.1)
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
     time.sleep(0.1)
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_play&input={video_path}", is_path=True)
-    time.sleep(0.1)
-
-    # --- Broadcast Play Now signal ---
-    # This tells all clients (including the one that sent 'video_ready') to start.
-    socketio.emit('player_action', {'action': 'play_now'})
     
     global karaoke_player_is_active
     karaoke_player_is_active = True
-    log_message(f"Playback started for {video_id}.")
+    log_message(f"Master playback started for {video_id}.")
 
 @app.route('/control', methods=['POST'])
 def handle_control():
