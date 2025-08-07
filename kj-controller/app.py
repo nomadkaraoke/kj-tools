@@ -132,7 +132,7 @@ def download_video(youtube_url):
     output_template = os.path.join(VIDEO_DIR, f"{video_id}")
 
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'bestvideo+bestaudio/best',
         'outtmpl': output_template,
         'merge_output_format': 'mp4',
         'force_overwrites': True,
