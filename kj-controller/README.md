@@ -24,6 +24,7 @@ This system was created to solve the problem of managing karaoke playback from a
 *   **Independent Volume Controls:** Separate, persistent volume sliders for the karaoke video and the filler music, consolidated in the main playback control area.
 *   **Always Fullscreen:** The karaoke video player is configured to always launch and remain in fullscreen mode.
 *   **Synchronized External Player:** A second, browser-based player screen can be opened on any device on the network. It plays the same video as the main screen, synchronized in real-time.
+*   **Configurable Sync Offset:** A slider in the UI allows for fine-tuning the external screen's playback timing, compensating for network or device latency.
 
 ## 3. Architecture
 
@@ -44,6 +45,14 @@ The system consists of three main components:
     *   A single HTML page with vanilla JavaScript that acts as the remote control.
     *   It communicates with the Flask backend via `fetch` API calls.
     *   It provides a user-friendly interface for all the system's features.
+
+4.  **Real-Time Synchronization (Flask-SocketIO):**
+    *   The backend uses `Flask-SocketIO` to manage a persistent WebSocket connection with all clients (the admin remote and any external screens).
+    *   **"Load and Pause" Sync Strategy:** To ensure tight synchronization, playback is initiated in two phases:
+        1.  When "Play" is clicked, the server commands both the main VLC player and all external screens to load the video and immediately pause at the first frame.
+        2.  Each client (VLC and the external screens) signals the server once it is loaded and ready.
+        3.  The server waits until all clients are ready, then broadcasts a single, simultaneous "play" command to everyone.
+    *   **Drift Correction:** A background thread on the server periodically broadcasts the master VLC player's current timestamp. External screens listen for this and correct their own playback if they fall behind, ensuring they stay in sync throughout the song.
 
 ## 4. Setup and Installation
 
