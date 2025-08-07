@@ -32,6 +32,7 @@ downloaded_videos = {} # Cache for video titles
 filler_music_target_volume = 100 # Default volume for filler music (0-256)
 karaoke_music_target_volume = 200 # Default volume for karaoke video (0-256, 256 is 100%)
 karaoke_player_is_active = False # Tracks if a karaoke song is supposed to be playing
+sync_offset_ms = 0 # Manual sync offset in milliseconds
 
 # --- Logging ---
 def log_message(message):
@@ -271,11 +272,22 @@ def preload_and_trigger_playback(video_id):
         log_message(f"ERROR: Timed out waiting for players. External: {external_ready}, Master: {master_ready}")
         return
 
-    # --- 3. Trigger simultaneous playback ---
-    log_message("All players ready. Broadcasting 'play_now'.")
-    socketio.emit('player_action', {'action': 'play_now'})
-    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_pause") # Unpause master VLC
+    # --- 3. Trigger simultaneous playback with offset ---
+    log_message(f"All players ready. Triggering playback with {sync_offset_ms}ms offset.")
     
+    offset_seconds = sync_offset_ms / 1000.0
+
+    if offset_seconds >= 0:
+        # Positive offset: External screen starts first
+        socketio.emit('player_action', {'action': 'play_now'})
+        time.sleep(offset_seconds)
+        send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_pause")
+    else:
+        # Negative offset: Master VLC starts first
+        send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_pause")
+        time.sleep(abs(offset_seconds))
+        socketio.emit('player_action', {'action': 'play_now'})
+
     global karaoke_player_is_active
     karaoke_player_is_active = True
     log_message(f"Playback started for {video_id}.")
@@ -318,6 +330,18 @@ def on_video_ready(data):
     video_id = data.get('video_id')
     log_message(f"External client is ready to play {video_id}.")
     external_client_ready.set() # Signal that the external client is ready
+
+@app.route('/sync_offset', methods=['POST'])
+def handle_sync_offset():
+    """Handles updating the manual sync offset."""
+    global sync_offset_ms
+    offset = request.json.get('offset')
+    if offset is None:
+        return jsonify({"error": "Offset is required"}), 400
+    
+    sync_offset_ms = int(offset)
+    log_message(f"Set sync offset to {sync_offset_ms}ms.")
+    return jsonify({"success": True})
 
 @app.route('/control', methods=['POST'])
 def handle_control():
