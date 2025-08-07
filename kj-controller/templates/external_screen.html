@@ -89,10 +89,12 @@
                 
                 const serverTime = data.time;
                 const clientTime = video.currentTime;
-                const timeDiff = Math.abs(serverTime - clientTime) * 1000;
+                const timeDiff = (serverTime - clientTime) * 1000; // Note: Not using Math.abs()
 
+                // Only sync if the client is BEHIND the server by more than the tolerance.
+                // This allows the client to have a head start without being pulled back.
                 if (timeDiff > SYNC_TOLERANCE_MS) {
-                    console.log(`Syncing video. Server: ${serverTime}, Client: ${clientTime}, Diff: ${timeDiff.toFixed(0)}ms`);
+                    console.log(`Client is behind. Syncing. Server: ${serverTime}, Client: ${clientTime}, Diff: ${timeDiff.toFixed(0)}ms`);
                     video.currentTime = serverTime;
                 }
             });
