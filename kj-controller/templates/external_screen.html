@@ -78,6 +78,10 @@
                         video.currentTime = 0;
                         video.play();
                         break;
+                    case 'seek':
+                        console.log(`Seeking to ${data.time}`);
+                        video.currentTime = data.time;
+                        break;
                 }
             });
 

@@ -14,7 +14,7 @@ FILLER_VLC_PORT = 8081
 KARAOKE_VLC_PASSWORD = "karaoke"
 FILLER_VLC_PASSWORD = "filler"
 VIDEO_DIR = os.path.expanduser("~/kjdata/videos")
-FILLER_MUSIC_PATH = os.path.expanduser("~/kjdata/wii.mp3")
+FILLER_MUSIC_DIR = os.path.expanduser("~/kjdata")
 LOG_FILE = os.path.expanduser("~/kj-controller.log")
 
 # --- Flask App Initialization ---
@@ -28,6 +28,7 @@ vlc_processes = {
     "filler": None
 }
 current_video_id = None
+current_filler_track = "wii.mp3" # Default
 downloaded_videos = {} # Cache for video titles
 filler_music_target_volume = 100 # Default volume for filler music (0-256)
 karaoke_music_target_volume = 200 # Default volume for karaoke video (0-256, 256 is 100%)
@@ -345,6 +346,19 @@ def handle_sync_offset():
     log_message(f"Set sync offset to {sync_offset_ms}ms.")
     return jsonify({"success": True})
 
+@app.route('/seek', methods=['POST'])
+def handle_seek():
+    """Handles seeking within the karaoke video."""
+    seek_time = request.json.get('time')
+    if seek_time is None:
+        return jsonify({"error": "Time is required"}), 400
+
+    log_message(f"Received seek request to time: {seek_time}")
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"seek&val={seek_time}")
+    socketio.emit('player_action', {'action': 'seek', 'time': float(seek_time)})
+    return jsonify({"success": True})
+
+
 @app.route('/control', methods=['POST'])
 def handle_control():
     """Handles playback controls like pause, resume, restart."""
@@ -367,9 +381,6 @@ def handle_control():
             karaoke_player_is_active = True
             fade_out_filler()
             socketio.emit('player_action', {'action': 'resume'})
-    elif action == 'restart':
-        send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "seek&val=0")
-        socketio.emit('player_action', {'action': 'restart'})
     elif action == 'stop':
         send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_stop")
         karaoke_player_is_active = False
@@ -457,6 +468,45 @@ def delete_video():
     else:
         return jsonify({"error": "Video not found"}), 404
 
+@app.route('/filler_music', methods=['GET'])
+def list_filler_music():
+    """Returns a list of available filler music files."""
+    try:
+        files = [
+            f for f in os.listdir(FILLER_MUSIC_DIR) 
+            if f.endswith(('.mp3', '.wav', '.ogg', '.flac'))
+        ]
+        return jsonify(files)
+    except FileNotFoundError:
+        return jsonify([])
+
+@app.route('/filler_music', methods=['POST'])
+def set_filler_music():
+    """Sets the filler music track and starts playing it."""
+    global current_filler_track
+    track_name = request.json.get('track_name')
+    if not track_name:
+        return jsonify({"error": "Track name is required"}), 400
+
+    new_track_path = os.path.join(FILLER_MUSIC_DIR, track_name)
+    if not os.path.exists(new_track_path):
+        return jsonify({"error": "Track not found"}), 404
+    
+    current_filler_track = track_name
+    log_message(f"Changing filler music to: {track_name}")
+
+    # Stop current filler, clear playlist, add new track, and play
+    send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_stop")
+    time.sleep(0.1)
+    send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_empty")
+    time.sleep(0.1)
+    send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, f"in_enqueue&input={new_track_path}", is_path=True)
+    time.sleep(0.1)
+    send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_play")
+    send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, f"volume&val={filler_music_target_volume}")
+
+    return jsonify({"success": True})
+
 @app.route('/status')
 def get_status():
     """Gets the status of the karaoke player."""
@@ -470,6 +520,7 @@ def get_status():
         return jsonify({
             "state": status.get('state'),
             "current_video_id": current_video_id,
+            "current_filler_track": current_filler_track,
             "time": status.get('time'),
             "length": status.get('length')
         })
@@ -524,7 +575,8 @@ def start_app():
 
     # Launch VLC instances
     launch_vlc_instance("karaoke", KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD)
-    launch_vlc_instance("filler", FILLER_VLC_PORT, FILLER_VLC_PASSWORD, FILLER_MUSIC_PATH, True)
+    filler_path = os.path.join(FILLER_MUSIC_DIR, current_filler_track)
+    launch_vlc_instance("filler", FILLER_VLC_PORT, FILLER_VLC_PASSWORD, filler_path, True)
 
     # Wait for VLC instances to be ready
     time.sleep(3)

@@ -11,11 +11,11 @@ This system was created to solve the problem of managing karaoke playback from a
 *   **One-Click Play:** Click any song in the "Available Songs" list to play it immediately.
 *   **YouTube Pre-Downloading:** Download karaoke videos from YouTube in their best available quality. Each video is assigned a unique ID for easy management.
 *   **Song Deletion:** Easily remove downloaded songs from the library with a delete button.
-*   **Automated Filler Music:** Plays background music from a local file during downtime between songs.
-*   **Intelligent Audio Fading:**
-    *   Filler music fades out over 3 seconds when a karaoke video starts.
-    *   Filler music fades back in over 3 seconds when a video is paused, stopped, or ends naturally.
-    *   Transitions between two karaoke songs are instantaneous, with no fade.
+*   **Automated Filler Music:** Plays background music from a local file during downtime between songs. A dropdown menu allows for selecting any valid audio file from the `~/kjdata` directory.
+    *   **Intelligent Audio Fading:**
+        *   Filler music fades out over 3 seconds when a karaoke video starts.
+        *   Filler music fades back in over 3 seconds when a video is paused, stopped, or ends naturally.
+    *   **Playback Controls:** Includes play, pause/resume, and stop controls. A seek bar allows for jumping to any point in the currently playing video.
 *   **Live Status Updates:** The remote interface shows the current player state, the ID of the playing video, and a time progress bar.
 *   **Optimized UI:**
     *   A compact, two-column layout ensures all critical controls are visible on a single screen without scrolling.
