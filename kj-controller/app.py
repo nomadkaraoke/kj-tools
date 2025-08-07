@@ -244,10 +244,12 @@ def preload_and_trigger_playback(video_id):
         fade_out_filler()
         time.sleep(3.5) # Wait for fade
 
-    # Load the video but keep it paused
+    # Load the video, set the volume, and then pause
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_empty")
     time.sleep(0.1)
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"in_enqueue&input={video_path}", is_path=True)
+    time.sleep(0.1)
+    send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, f"volume&val={karaoke_music_target_volume}")
     time.sleep(0.1)
     send_vlc_command(KARAOKE_VLC_PORT, KARAOKE_VLC_PASSWORD, "pl_play")
     time.sleep(0.5) # Give VLC time to load and enter the 'playing' state
@@ -415,7 +417,8 @@ def list_videos():
                     video_details.append({
                         "id": video_id,
                         "title": title,
-                        "date": metadata.get("download_date", 0)
+                        "date": metadata.get("download_date", 0),
+                        "url": metadata.get("original_url", "")
                     })
             except Exception as e:
                 log_message(f"Could not read metadata for {video_id}: {e}")
