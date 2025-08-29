@@ -119,6 +119,12 @@
                     <label for="filler-selector">Filler Music:</label>
                     <select id="filler-selector" onchange="setFillerMusic(this.value)" style="width: 100%; padding: 8px;"></select>
                 </div>
+                <div style="margin-top: 1rem;">
+                    <label>
+                        <input type="checkbox" id="wait-for-external" onchange="toggleWaitForExternal(this.checked)">
+                        Wait for external screen before play
+                    </label>
+                </div>
             </div>
         </div>
 
@@ -233,6 +239,11 @@
             await apiCall('/sync_offset', { offset: parseInt(offset) });
         }
 
+        async function toggleWaitForExternal(enabled) {
+            log(`Wait for external set to ${enabled}`);
+            await apiCall('/settings/wait_for_external', { enabled });
+        }
+
         let totalVideoLength = 0; // Store the total length of the current video
         let isSeeking = false;
 
@@ -340,6 +351,11 @@
                     document.getElementById('current-filler').textContent = data.current_filler_track || 'None';
                     document.getElementById('current-time').textContent = formatTime(data.time);
                     document.getElementById('total-time').textContent = formatTime(data.length);
+
+                    const waitCheckbox = document.getElementById('wait-for-external');
+                    if (typeof data.wait_for_external_enabled === 'boolean') {
+                        waitCheckbox.checked = data.wait_for_external_enabled;
+                    }
 
                     totalVideoLength = data.length || 0;
                     const seekSlider = document.getElementById('seek-slider');

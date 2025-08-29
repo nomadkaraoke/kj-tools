@@ -34,6 +34,7 @@ filler_music_target_volume = 100 # Default volume for filler music (0-256)
 karaoke_music_target_volume = 200 # Default volume for karaoke video (0-256, 256 is 100%)
 karaoke_player_is_active = False # Tracks if a karaoke song is supposed to be playing
 sync_offset_ms = 0 # Manual sync offset in milliseconds
+wait_for_external_enabled = True # If False, do not wait for external screen readiness
 
 # --- Logging ---
 def log_message(message):
@@ -266,14 +267,21 @@ def preload_and_trigger_playback(video_id):
         log_message(f"ERROR: Master VLC failed to enter paused state. Status: {vlc_status}")
         return # Abort if master VLC isn't ready
 
-    # --- 2. Wait for both players to be ready ---
-    log_message(f"Waiting for players to be ready for {video_id}...")
-    external_ready = external_client_ready.wait(timeout=10)
-    master_ready = master_vlc_ready.wait(timeout=10) # This should already be set, but we wait just in case
+    # --- 2. Wait for both players to be ready (optional for external) ---
+    if wait_for_external_enabled:
+        log_message(f"Waiting for players to be ready for {video_id}...")
+        external_ready = external_client_ready.wait(timeout=10)
+        master_ready = master_vlc_ready.wait(timeout=10) # This should already be set, but we wait just in case
 
-    if not external_ready or not master_ready:
-        log_message(f"ERROR: Timed out waiting for players. External: {external_ready}, Master: {master_ready}")
-        return
+        if not external_ready or not master_ready:
+            log_message(f"ERROR: Timed out waiting for players. External: {external_ready}, Master: {master_ready}")
+            return
+    else:
+        log_message("Wait for external disabled. Proceeding with master-only readiness.")
+        master_ready = master_vlc_ready.wait(timeout=10)
+        if not master_ready:
+            log_message("ERROR: Timed out waiting for master VLC readiness.")
+            return
 
     # --- 3. Trigger simultaneous playback with offset ---
     log_message(f"All players ready. Triggering playback with {sync_offset_ms}ms offset.")
@@ -316,8 +324,9 @@ def handle_play():
     external_client_ready.clear()
     master_vlc_ready.clear()
 
-    # --- Preload on External Client ---
-    socketio.emit('player_action', {'action': 'preload', 'video_id': video_id})
+    # --- Preload on External Client (only if we care to sync external) --- 
+    if wait_for_external_enabled:
+        socketio.emit('player_action', {'action': 'preload', 'video_id': video_id})
 
     # --- Start the background thread to manage the whole process ---
     threading.Thread(target=preload_and_trigger_playback, args=(video_id,)).start()
@@ -485,7 +494,7 @@ def list_filler_music():
 
 @app.route('/filler_music', methods=['POST'])
 def set_filler_music():
-    """Sets the filler music track and starts playing it."""
+    """Sets the filler music track and starts playing it at a random time."""
     global current_filler_track
     track_name = request.json.get('track_name')
     if not track_name:
@@ -506,6 +515,19 @@ def set_filler_music():
     send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, f"in_enqueue&input={new_track_path}", is_path=True)
     time.sleep(0.1)
     send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "pl_play")
+    
+    # Let it play for a moment to get metadata
+    time.sleep(0.5) 
+    
+    # Get duration and seek to a random spot
+    status = send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, "")
+    if status and 'length' in status and status['length'] > 0:
+        duration = status['length']
+        # Seek to a random time, leaving a little buffer at the end
+        random_time = random.randint(0, max(0, int(duration) - 5))
+        log_message(f"Seeking filler music to {random_time}s (duration: {duration}s)")
+        send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, f"seek&val={random_time}")
+
     send_vlc_command(FILLER_VLC_PORT, FILLER_VLC_PASSWORD, f"volume&val={filler_music_target_volume}")
 
     return jsonify({"success": True})
@@ -525,9 +547,21 @@ def get_status():
             "current_video_id": current_video_id,
             "current_filler_track": current_filler_track,
             "time": status.get('time'),
-            "length": status.get('length')
+            "length": status.get('length'),
+            "wait_for_external_enabled": wait_for_external_enabled
         })
     return jsonify({"error": "Could not get status"}), 500
+
+@app.route('/settings/wait_for_external', methods=['POST'])
+def set_wait_for_external():
+    """Enable/disable waiting for external player readiness."""
+    global wait_for_external_enabled
+    value = request.json.get('enabled')
+    if value is None:
+        return jsonify({"error": "'enabled' is required"}), 400
+    wait_for_external_enabled = bool(value)
+    log_message(f"Wait for external set to {wait_for_external_enabled}")
+    return jsonify({"success": True, "wait_for_external_enabled": wait_for_external_enabled})
 
 
 # --- Main Execution ---
