@@ -16,6 +16,7 @@ FILLER_VLC_PASSWORD = "filler"
 VIDEO_DIR = os.path.expanduser("~/kjdata/videos")
 FILLER_MUSIC_DIR = os.path.expanduser("~/kjdata")
 LOG_FILE = os.path.expanduser("~/kj-controller.log")
+YOUTUBE_COOKIES_FILE = os.path.expanduser("~/kjdata/youtube_cookies.txt")
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
@@ -34,7 +35,7 @@ filler_music_target_volume = 100 # Default volume for filler music (0-256)
 karaoke_music_target_volume = 200 # Default volume for karaoke video (0-256, 256 is 100%)
 karaoke_player_is_active = False # Tracks if a karaoke song is supposed to be playing
 sync_offset_ms = 0 # Manual sync offset in milliseconds
-wait_for_external_enabled = True # If False, do not wait for external screen readiness
+wait_for_external_enabled = False # If False, do not wait for external screen readiness
 
 # --- Logging ---
 def log_message(message):
@@ -153,6 +154,11 @@ def download_video(youtube_url):
         'noplaylist': True,
         'writethumbnail': True, # Save thumbnail
     }
+    
+    # Add cookies file if it exists
+    if os.path.exists(YOUTUBE_COOKIES_FILE):
+        ydl_opts['cookiefile'] = YOUTUBE_COOKIES_FILE
+        log_message(f"Using YouTube cookies file: {YOUTUBE_COOKIES_FILE}")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
